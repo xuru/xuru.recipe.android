@@ -1,5 +1,6 @@
 import logging
 import os
+import re
 import sys
 import stat
 import os.path
@@ -13,6 +14,13 @@ template = """#!/bin/bash
 
 export ANDRIOD_HOME={android_home}
 {command} $@"""
+
+
+image_map = {
+    'arm': "ARM EABI v7a",
+    'intel': "Intel x86 Atom",
+    'mips': "MIPS"
+}
 
 
 class Recipe:
@@ -31,6 +39,10 @@ class Recipe:
             raise SystemError("Can't guess your platform")
 
         self._setup_paths(buildout)
+        self.apis = self.options.get('apis', '').split()
+        self.images = self.options.get('system_images', '').split()
+        self.logger.info("apis: %s" % str(self.apis))
+        self.logger.info("images: %s" % str(self.images))
 
         self.install_cmd = [
             os.path.join(self.sdk_dir, 'tools', 'android'),
@@ -48,7 +60,7 @@ class Recipe:
         self.target_install = os.path.join(self.bin_dir, self.name)
 
         self.sdk_script_binaries = []
-        for name in ['android', 'emulator', 'uiautomatorviewer', 'lint']:
+        for name in ['emulator', 'uiautomatorviewer', 'lint']:
             self.sdk_script_binaries.append(os.path.join(self.sdk_dir, 'tools', name))
 
         self.sdk_script_binaries.append(os.path.join(self.sdk_dir, 'platform-tools', 'adb'))
@@ -65,53 +77,57 @@ class Recipe:
                 index, desc = [x.strip() for x in line.split('- ')]
                 self.not_installed[index] = desc
 
+    def _find_apis(self):
+        rv = []
+        for api in self.apis:
+            regex = re.compile("SDK Platform Android .* API " + api)
+            for index, line in self.not_installed.items():
+                if regex.search(line):
+                    rv.append(index)
+        return rv
+
+    def _find_images(self):
+        rv = []
+        for api in self.apis:
+            if api == "17" and os.path.exists(os.path.join(self.parts_dir, '.installed_api17')):
+                # we already installed it...
+                continue
+
+            for image in self.images:
+                regex = re.compile(image_map[image.lower()] + " System Image.*API " + api)
+                for index, line in self.not_installed.items():
+                    if regex.search(line):
+                        rv.append(index)
+        return rv
+
+    def _find_required(self):
+        rv = []
+        for index, line in self.not_installed.items():
+            if 'Android SDK Tools' in line:
+                rv.append(index)
+            elif 'Android SDK Platform-tools' in line:
+                rv.append(index)
+            elif 'Android SDK Build-tools' in line:
+                rv.append(index)
+        return rv
+
     def _calculate_packages(self):
-        apis = self.options.get('apis', '').split()
-        images = self.options.get('images', '').split()
-        google_apis = self.options.get('google_apis')
+        self._get_not_installed()
         others = self.options.get('other_packages', '').split('\n')
 
-        installables = []
-        for index, line in self.not_installed.items():
-            # required...
-            if 'Android SDK Tools' in line:
-                installables.append(index)
-            elif 'Android SDK Platform-tools' in line:
-                installables.append(index)
-            elif 'Android SDK Build-tools' in line:
-                installables.append(index)
-            elif 'Android Support Library' in line:
-                installables.append(index)
+        installables = self._find_required()
+        installables += self._find_apis()
+        installables += self._find_images()
 
-            elif 'SDK Platform Android' in line:
-                for api in apis:
-                    if 'API ' + api in line:
-                        installables.append(index)
-
-            elif 'System Image' in line:
-                for image in images:
-                    for api in apis:
-                        if 'API ' + api in line:
-                            if image.lower() == 'arm' and 'ARM EABI v7a' in line:
-                                installables.append(index)
-                            elif image.lower() == 'intel' and 'Intel x86 Atom' in line:
-                                installables.append(index)
-                            elif image.lower() == 'mips' and 'MIPS' in line:
-                                installables.append(index)
-
-            elif 'Google APIs' in line and google_apis:
-                for api in apis:
-                    if 'API ' + api in line:
-                        installables.append(index)
-
-            for other in others:
+        for other in others:
+            for index, line in self.not_installed.items():
                 if other in line:
                     installables.append(index)
 
         return installables
 
     def _install_tool(self, tool):
-        self.logger.info("Installing android: %s" % tool)
+        self.logger.info("Installing android: %s" % self.not_installed[tool])
         cmd = self.install_cmd + ['-t', tool]
 
         env = os.environ
@@ -132,13 +148,6 @@ class Recipe:
         if child.isalive():
             child.wait()
 
-        if 'Intel x86 Emulator Accelerator' in self.not_installed[tool]:
-            self.logger.warn("*" * 80)
-            self.logger.warn("Be sure to install ")
-            self.logger.warn("parts/android/android-sdk-macosx/extras/intel/Hardware_Accelerated_Execution_Manager/IntelHAXM.dmg")
-            self.logger.warn("before using the emulator.")
-            self.logger.warn("*" * 80)
-
     def _create_script(self, cmd, env=os.environ):
         data = template.format(android_home=self.sdk_dir, command=cmd)
         script_fn = os.path.join(self.bin_dir, os.path.split(cmd)[-1])
@@ -149,12 +158,18 @@ class Recipe:
             script_fn,
             os.stat(script_fn).st_mode | stat.S_IXOTH | stat.S_IXGRP | stat.S_IXUSR)
 
-    def build(self):
+    def _install(self):
         self.logger.info('installing tools')
 
-        if os.path.exists(self.target_install):
-            os.unlink(self.target_install)
+        for script in self.sdk_script_binaries:
+            if os.path.exists(script):
+                os.unlink(script)
 
+        self._download_install()
+        self._create_script(os.path.join(self.sdk_dir, "tools", "android"))
+        self._update()
+
+    def _download_install(self):
         url = self.options['sdk']
 
         filename = os.path.join('downloads', url.split('/')[-1])
@@ -172,22 +187,32 @@ class Recipe:
         finally:
             if is_temp:
                 os.remove(filename)
+        self._update()
 
-        # now get what isn't installed...
-        self._get_not_installed()
+    def _update(self):
+        done = False
 
-        for package in self._calculate_packages():
-            if 'System Image, Android API 17' in self.not_installed[package]:
-                if not os.path.exists(os.path.join(self.parts_dir, '.installed_api17')):
+        while not done:
+            # we need to do this every time we install something because the
+            # numbering will be different
+            packages = self._calculate_packages()
+            if packages:
+                package = packages[0]
+
+                # work around for the latest android not returning the correct
+                # information...  android list sdk will always list the system
+                # images for api 17...
+                if 'System Image, Android API 17' in self.not_installed[package]:
+                    if not os.path.exists(os.path.join(self.parts_dir, '.installed_api17')):
+                        self._install_tool(package)
+                        open(os.path.join(self.parts_dir, '.installed_api17'), 'w+').write('true')
+                    else:
+                        if len(packages) == 1:
+                            done = True
+                else:
                     self._install_tool(package)
             else:
-                self._install_tool(package)
-
-            # work around for the latest android not returning the correct
-            # information...  android list sdk will always list the system
-            # images for api 17...
-            if 'System Image, Android API 17' in self.not_installed[package]:
-                open(os.path.join(self.parts_dir, '.installed_api17'), 'w+').write('true')
+                done = True
 
         for script in self.sdk_script_binaries:
             self._create_script(script)
@@ -195,8 +220,14 @@ class Recipe:
     def install(self):
         # -a will force a re-install
         #self.install_cmd.append('-a')
-        self.build()
+        self._install()
+
+        self.logger.warn("*" * 80)
+        self.logger.warn("If you installed the Intel x86 Emulator Accelerator package, you will find the installer in")
+        self.logger.warn("parts/android/android-sdk-macosx/extras/intel/Hardware_Accelerated_Execution_Manager/IntelHAXM.dmg")
+        self.logger.warn("*" * 80)
+
         return ['bin/%s' % self.name]
 
     def update(self):
-        self.build()
+        self._update()
