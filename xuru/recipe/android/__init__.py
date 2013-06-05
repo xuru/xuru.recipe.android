@@ -31,7 +31,6 @@ class Recipe:
             raise SystemError("Can't guess your platform")
 
         self._setup_paths(buildout)
-        self._get_not_installed()
 
         self.install_cmd = [
             os.path.join(self.sdk_dir, 'tools', 'android'),
@@ -173,6 +172,9 @@ class Recipe:
         finally:
             if is_temp:
                 os.remove(filename)
+
+        # now get what isn't installed...
+        self._get_not_installed()
 
         for package in self._calculate_packages():
             if 'System Image, Android API 17' in self.not_installed[package]:
