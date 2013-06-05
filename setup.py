@@ -1,14 +1,21 @@
 from setuptools import setup, find_packages
+import os
 
 name = "xuru.recipe.android"
-version = '0.8.0'
+version = '0.8.5'
+
+
+def read(*pathnames):
+    return open(os.path.join(os.path.dirname(__file__), *pathnames)).read()
+
 
 setup(
     name=name,
     version=version,
-    long_description=open('README.md').read(),
+    long_description=read('README.rst'),
 
     packages=find_packages(exclude=['ez_setup']),
+    package_data={'xuru.recipe': ['android/*.rst']},
     include_package_data=True,
     zip_safe=True,
 
@@ -19,10 +26,11 @@ setup(
     author_email="plaster@gmail.com",
     description="android zc.buildout recipe",
     license="MIT License",
-    url='http://www.python.org/pypi/' + name,
+    url='https://github.com/xuru/xuru.recipe.android',
 
     namespace_packages=['xuru', 'xuru.recipe'],
 
+    keywords='android buildout',
     classifiers=[
         'Framework :: Buildout',
         'Development Status :: 4 - Beta',
