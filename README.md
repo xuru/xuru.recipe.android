@@ -1,1 +1,1 @@
-See xuru/recipe/android/README.rst
+See README.rst

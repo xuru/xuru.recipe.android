@@ -36,9 +36,13 @@ example::
     other_packages = 
         Google Play APK Expansion Library
         Google Web Driver
+    install_dir = /opt/android/sdk
 
 To find what packages are available, run "android list sdk -a" from the
 commandline.
+
+Also added an optional "install_dir" parameter to install it in a different
+location (default is in the parts directory).
 
 Binaries
 --------

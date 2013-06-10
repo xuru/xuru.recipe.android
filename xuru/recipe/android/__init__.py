@@ -38,11 +38,12 @@ class Recipe:
         else:
             raise SystemError("Can't guess your platform")
 
-        self._setup_paths(buildout)
         self.apis = self.options.get('apis', '').split()
         self.images = self.options.get('system_images', '').split()
+        self.install_dir = self.options.get('install_dir', None)
         self.logger.info("apis: %s" % str(self.apis))
         self.logger.info("images: %s" % str(self.images))
+        self._setup_paths(buildout)
 
         self.install_cmd = [
             os.path.join(self.sdk_dir, 'tools', 'android'),
@@ -53,10 +54,20 @@ class Recipe:
 
     def _setup_paths(self, buildout):
         self.download_cache = buildout['buildout'].get('download-cache')
-        self.parts_dir = os.path.join(buildout['buildout'].get('parts-directory'), self.name)
         self.bin_dir = buildout['buildout'].get('bin-directory')
 
-        self.sdk_dir = os.path.join(self.parts_dir, "android-sdk-" + self.platform)
+        self.parts_dir = os.path.join(buildout['buildout'].get('parts-directory'), self.name)
+        if not os.path.exists(self.parts_dir):
+            os.makedirs(self.parts_dir)
+
+        if self.install_dir:
+            if not os.path.exists(self.install_dir):
+                os.makedirs(self.install_dir)
+
+            self.sdk_dir = os.path.join(self.install_dir, "android-sdk-" + self.platform)
+        else:
+            self.sdk_dir = os.path.join(self.parts_dir, "android-sdk-" + self.platform)
+
         self.target_install = os.path.join(self.bin_dir, self.name)
 
         self.sdk_script_binaries = []
@@ -183,7 +194,7 @@ class Recipe:
         # now unpack it
         self.logger.info('Unpacking and configuring')
         try:
-            setuptools.archive_util.unpack_archive(filename, self.parts_dir)
+            setuptools.archive_util.unpack_archive(filename, self.install_dir)
         finally:
             if is_temp:
                 os.remove(filename)
@@ -203,9 +214,9 @@ class Recipe:
                 # information...  android list sdk will always list the system
                 # images for api 17...
                 if 'System Image, Android API 17' in self.not_installed[package]:
-                    if not os.path.exists(os.path.join(self.parts_dir, '.installed_api17')):
+                    if not os.path.exists(os.path.join(self.sdk_dir, '.installed_api17')):
                         self._install_tool(package)
-                        open(os.path.join(self.parts_dir, '.installed_api17'), 'w+').write('true')
+                        open(os.path.join(self.sdk_dir, '.installed_api17'), 'w+').write('true')
                     else:
                         if len(packages) == 1:
                             done = True
