@@ -218,9 +218,11 @@ class Recipe:
                     if not os.path.exists(os.path.join(self.sdk_dir, '.installed_api17')):
                         self._install_tool(package)
                         open(os.path.join(self.sdk_dir, '.installed_api17'), 'w+').write('true')
+                    elif len(packages) > 1:
+                        package = packages[1]
+                        self._install_tool(package)
                     else:
-                        if len(packages) == 1:
-                            done = True
+                        done = True
                 else:
                     self._install_tool(package)
             else:
