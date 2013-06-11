@@ -153,6 +153,8 @@ class Recipe:
             if index == 0:
                 child.sendline('y')
             elif index in [1, 2]:
+                done = True
+            elif index == 3:
                 child.terminate(force=True)
                 done = True
         if child.isalive():
