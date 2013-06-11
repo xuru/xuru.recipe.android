@@ -152,7 +152,8 @@ class Recipe:
             index = child.expect(['\[y\/n\]', already_installed, pexpect.EOF, pexpect.TIMEOUT])
             if index == 0:
                 child.sendline('y')
-            elif index in [1, 2, 3]:
+            elif index in [1, 2]:
+                child.terminate(force=True)
                 done = True
         if child.isalive():
             child.wait()
