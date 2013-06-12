@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 import os
 
 name = "xuru.recipe.android"
-version = '0.8.8'
+version = '0.8.9'
 
 
 def read(*pathnames):
