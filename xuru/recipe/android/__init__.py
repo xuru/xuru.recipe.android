@@ -33,7 +33,8 @@ class Recipe:
         self.images = self.options.get('system_images', '').split()
         self.bin_dir = buildout['buildout'].get('bin-directory')
         self.parts_dir = os.path.join(buildout['buildout'].get('parts-directory'), self.name)
-        self.sdk_dir = self._get_install_dir()
+        self.install_dir = self.options.get('install_dir', None)
+        self.sdk_dir = self._get_sdk_dir()
 
         # make sure we have a parts directory
         if not os.path.exists(self.parts_dir):
@@ -54,10 +55,7 @@ class Recipe:
             self.install_cmd.append('--dry-mode')
 
         # save off options so other parts can access these values
-        buildout['buildout'][self.name]['sdk_dir'] = self.sdk_dir
-        buildout['buildout'][self.name]['images'] = self.images
-        buildout['buildout'][self.name]['apis'] = self.apis
-        buildout['buildout'][self.name]['scripts'] = self.sdk_script_binaries
+        buildout[self.name]['sdk_dir'] = self.sdk_dir
 
     def _get_platform(self):
         platform = None
@@ -72,13 +70,12 @@ class Recipe:
             raise SystemError("Can't guess your platform")
         return platform
 
-    def _get_install_dir(self):
-        install_dir = self.options.get('install_dir', None)
-        if install_dir:
-            if not os.path.exists(install_dir):
-                os.makedirs(install_dir)
+    def _get_sdk_dir(self):
+        if self.install_dir:
+            if not os.path.exists(self.install_dir):
+                os.makedirs(self.install_dir)
 
-            sdk_dir = os.path.join(install_dir, "android-sdk-" + self.platform)
+            sdk_dir = os.path.join(self.install_dir, "android-sdk-" + self.platform)
         else:
             sdk_dir = os.path.join(self.parts_dir, "android-sdk-" + self.platform)
         return sdk_dir
