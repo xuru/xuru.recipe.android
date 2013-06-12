@@ -28,23 +28,30 @@ class Recipe:
         self.buildout, self.name, self.options = buildout, name, options
         self.logger = logging.getLogger(name)
 
-        # determine platform string to use
-        if sys.platform.startswith('linux'):
-            self.platform = 'linux'
-        elif sys.platform.startswith('darwin'):
-            self.platform = 'macosx'
-        elif sys.platform.startswith('win32'):
-            self.platform = 'windows'
-        else:
-            raise SystemError("Can't guess your platform")
-
+        self.platform = self._get_platform()
         self.apis = self.options.get('apis', '').split()
         self.images = self.options.get('system_images', '').split()
-        self.install_dir = self.options.get('install_dir', None)
-        self.logger.info("apis: %s" % str(self.apis))
-        self.logger.info("images: %s" % str(self.images))
-        self._setup_paths(buildout)
+        self.bin_dir = buildout['buildout'].get('bin-directory')
+        self.parts_dir = os.path.join(buildout['buildout'].get('parts-directory'), self.name)
+        self.sdk_dir = self._get_install_dir()
 
+        # save off options so other parts can access these values
+        options['sdk_dir'] = self.sdk_dir
+        options['parts_dir'] = self.parts_dir
+        options['images'] = self.images
+        options['apis'] = self.apis
+
+        # make sure we have a parts directory
+        if not os.path.exists(self.parts_dir):
+            os.makedirs(self.parts_dir)
+
+        # build up a list of scripts to generate
+        self.sdk_script_binaries = []
+        for name in ['emulator', 'uiautomatorviewer', 'lint']:
+            self.sdk_script_binaries.append(os.path.join(self.sdk_dir, 'tools', name))
+        self.sdk_script_binaries.append(os.path.join(self.sdk_dir, 'platform-tools', 'adb'))
+
+        # install command
         self.install_cmd = [
             os.path.join(self.sdk_dir, 'tools', 'android'),
             '-v', 'update', 'sdk', '-s', '-u']
@@ -52,29 +59,29 @@ class Recipe:
         if 'dry-run' in options:
             self.install_cmd.append('--dry-mode')
 
-    def _setup_paths(self, buildout):
-        self.download_cache = buildout['buildout'].get('download-cache')
-        self.bin_dir = buildout['buildout'].get('bin-directory')
-
-        self.parts_dir = os.path.join(buildout['buildout'].get('parts-directory'), self.name)
-        if not os.path.exists(self.parts_dir):
-            os.makedirs(self.parts_dir)
-
-        if self.install_dir:
-            if not os.path.exists(self.install_dir):
-                os.makedirs(self.install_dir)
-
-            self.sdk_dir = os.path.join(self.install_dir, "android-sdk-" + self.platform)
+    def _get_platform(self):
+        platform = None
+        # determine platform string to use
+        if sys.platform.startswith('linux'):
+            platform = 'linux'
+        elif sys.platform.startswith('darwin'):
+            platform = 'macosx'
+        elif sys.platform.startswith('win32'):
+            platform = 'windows'
         else:
-            self.sdk_dir = os.path.join(self.parts_dir, "android-sdk-" + self.platform)
+            raise SystemError("Can't guess your platform")
+        return platform
 
-        self.target_install = os.path.join(self.bin_dir, self.name)
+    def _get_install_dir(self):
+        install_dir = self.options.get('install_dir', None)
+        if install_dir:
+            if not os.path.exists(install_dir):
+                os.makedirs(install_dir)
 
-        self.sdk_script_binaries = []
-        for name in ['emulator', 'uiautomatorviewer', 'lint']:
-            self.sdk_script_binaries.append(os.path.join(self.sdk_dir, 'tools', name))
-
-        self.sdk_script_binaries.append(os.path.join(self.sdk_dir, 'platform-tools', 'adb'))
+            sdk_dir = os.path.join(install_dir, "android-sdk-" + self.platform)
+        else:
+            sdk_dir = os.path.join(self.parts_dir, "android-sdk-" + self.platform)
+        return sdk_dir
 
     def _get_not_installed(self):
         env = os.environ
@@ -201,6 +208,30 @@ class Recipe:
                 os.remove(filename)
         self._update()
 
+    def _get_next_install_package(self, packages):
+        package = packages[0]
+
+        # work around for the latest android not returning the correct
+        # information...  android list sdk will always list the system
+        # images for api 17...
+        if 'System Image, Android API 17' in self.not_installed[package]:
+
+            # we have haven't installed it yet...
+            if not os.path.exists(os.path.join(self.sdk_dir, '.installed_api17')):
+                open(os.path.join(self.sdk_dir, '.installed_api17'), 'w+').write('true')
+                return package
+
+            # we installed it, but there are more packages after it in the list...
+            elif len(packages) > 1:
+                return packages[1]
+
+            # we installed it, and there are no other packages
+            else:
+                return None
+        else:
+            # package isn't api 17, so install it
+            return package
+
     def _update(self):
         done = False
 
@@ -209,22 +240,11 @@ class Recipe:
             # numbering will be different
             packages = self._calculate_packages()
             if packages:
-                package = packages[0]
-
-                # work around for the latest android not returning the correct
-                # information...  android list sdk will always list the system
-                # images for api 17...
-                if 'System Image, Android API 17' in self.not_installed[package]:
-                    if not os.path.exists(os.path.join(self.sdk_dir, '.installed_api17')):
-                        self._install_tool(package)
-                        open(os.path.join(self.sdk_dir, '.installed_api17'), 'w+').write('true')
-                    elif len(packages) > 1:
-                        package = packages[1]
-                        self._install_tool(package)
-                    else:
-                        done = True
-                else:
+                package = self._get_next_install_package(packages)
+                if package:
                     self._install_tool(package)
+                else:
+                    done = True
             else:
                 done = True
 
@@ -232,8 +252,6 @@ class Recipe:
             self._create_script(script)
 
     def install(self):
-        # -a will force a re-install
-        #self.install_cmd.append('-a')
         self._install()
 
         self.logger.warn("*" * 80)
@@ -241,7 +259,7 @@ class Recipe:
         self.logger.warn("parts/android/android-sdk-macosx/extras/intel/Hardware_Accelerated_Execution_Manager/IntelHAXM.dmg")
         self.logger.warn("*" * 80)
 
-        return ['bin/%s' % self.name]
+        return self.sdk_script_binaries
 
     def update(self):
         self._update()
