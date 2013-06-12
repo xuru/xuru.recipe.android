@@ -1,5 +1,6 @@
 from setuptools import setup, find_packages
 import os
+import os.path
 
 name = "xuru.recipe.android"
 version = '0.9.0'
@@ -12,7 +13,8 @@ def read(*pathnames):
 setup(
     name=name,
     version=version,
-    long_description=read('README.rst'),
+    description="A zc.buildout recipe that will install the android sdk and install tools, apis, and images",
+    long_description=read('README.rst') + "\n\n" + read(os.path.join("docs", "HISTORY.rst")),
 
     packages=find_packages(exclude=['ez_setup']),
     package_data={'xuru.recipe': ['android/*.rst']},
@@ -24,7 +26,6 @@ setup(
 
     author="Eric Plaster",
     author_email="plaster@gmail.com",
-    description="android zc.buildout recipe",
     license="MIT License",
     url='https://github.com/xuru/xuru.recipe.android',
 

@@ -1,34 +1,12 @@
+.. contents:: :depth: 1
 
-xuru.recipe.android
-===================
+Introduction
+============
 
-This recipe allows you to install the android sdk as part of your parts list.
-
-::
+**xuru.recipe.android** allows you to install the android sdk as part of your parts list.
+For example::
 
     [my_android_sdk]
-    recipe = xuru.recipe.android
-    apis = 16 17
-    system_images = intel mips
-    sdk = http://dl.google.com/android/android-sdk_r22.0.1-macosx.zip
-
-This will install the android sdk into the parts directory, and the
-following sdk tools will be installed:
-
-- platform-tools
-- build-tools
-- tools
-- extra-android-support
-- Any APIs and system images specified.
-
-APIs
-
-- Each API listed in the apis list will install the system image based on the system_images list.
-
-Any other package can be installed by using the "other_packages" parameter.  For
-example::
-
-    [my_adroid_sdk]
     recipe = xuru.recipe.android
     apis = 16 17
     system_images = intel mips
@@ -36,20 +14,56 @@ example::
     other_packages = 
         Google Play APK Expansion Library
         Google Web Driver
-    install_dir = /opt/android/sdk
 
-To find what packages are available, run "android list sdk -a" from the
-commandline.
+This will install the android sdk into the parts directory, along with
+platform-tools, build-tools, and tools.  It will then install version
+16 and 17 apis.  In addition, it will install the intel and mips system images
+for each of those apis.
 
-Also added an optional "install_dir" parameter to install it in a different
-location (default is in the parts directory).
+The format of entries in the buidout section (my_android_sdk in this example)
+is::
 
-Binaries
---------
+    [section_name]
+    recipe = xuru.recipe.android
+
+Where options are:
+
+``apis``
+    The list of api versions on one line seperated by spaces.
+
+``system_images``
+    The list of system images types for each of the apis specified above.  Valid
+    values are intel, mips or arm.
+
+``sdk``
+    The full url to the downloadable zip file for the android sdk.
+
+``install_dir``
+    Optional absolute directory to install the sdk instead of the default <buidout parts
+    directory>/android
+
+``other_packages``
+    Optional list (on seperate lines) of extra packages to install.  To see what
+    packages there are to install type ``android list sdk -a`` on the command
+    line after the sdk has been installed.  The name must be a unique sub-string
+    of the names listed.
+
+Binaries Installed
+------------------
 
 A script will be generated in the bin directory for each of the following binaries:
+- adb
 - android
 - emulator
 - uiautomationviewer
 - lint
-- adb
+
+What This Does Not Install
+--------------------------
+
+If you installed the **Intel x86 Emulator Accelerator (HAXM)** package, you will 
+find the installer in:
+
+``parts/android/android-sdk-macosx/extras/intel/Hardware_Accelerated_Execution_Manager/IntelHAXM.dmg``
+
+This recipe will not run any installers at this time.
