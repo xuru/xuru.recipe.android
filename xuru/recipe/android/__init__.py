@@ -35,12 +35,6 @@ class Recipe:
         self.parts_dir = os.path.join(buildout['buildout'].get('parts-directory'), self.name)
         self.sdk_dir = self._get_install_dir()
 
-        # save off options so other parts can access these values
-        options['sdk_dir'] = self.sdk_dir
-        options['parts_dir'] = self.parts_dir
-        options['images'] = self.images
-        options['apis'] = self.apis
-
         # make sure we have a parts directory
         if not os.path.exists(self.parts_dir):
             os.makedirs(self.parts_dir)
@@ -58,6 +52,12 @@ class Recipe:
 
         if 'dry-run' in options:
             self.install_cmd.append('--dry-mode')
+
+        # save off options so other parts can access these values
+        buildout['buildout'][self.name]['sdk_dir'] = self.sdk_dir
+        buildout['buildout'][self.name]['images'] = self.images
+        buildout['buildout'][self.name]['apis'] = self.apis
+        buildout['buildout'][self.name]['scripts'] = self.sdk_script_binaries
 
     def _get_platform(self):
         platform = None
