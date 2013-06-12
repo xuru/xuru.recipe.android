@@ -28,6 +28,8 @@ class Recipe:
         self.buildout, self.name, self.options = buildout, name, options
         self.logger = logging.getLogger(name)
 
+        root_logger = logging.getLogger()
+        self.verbose = root_logger > 10
         self.platform = self._get_platform()
         self.apis = self.options.get('apis', '').split()
         self.images = self.options.get('system_images', '').split()
@@ -47,9 +49,10 @@ class Recipe:
         self.sdk_script_binaries.append(os.path.join(self.sdk_dir, 'platform-tools', 'adb'))
 
         # install command
-        self.install_cmd = [
-            os.path.join(self.sdk_dir, 'tools', 'android'),
-            '-v', 'update', 'sdk', '-s', '-u']
+        self.install_cmd = [os.path.join(self.sdk_dir, 'tools', 'android')]
+        if self.verbose:
+            self.install_cmd.append('-v')
+        self.install_cmd.extend(['update', 'sdk', '-s', '-u'])
 
         if 'dry-run' in options:
             self.install_cmd.append('--dry-mode')
