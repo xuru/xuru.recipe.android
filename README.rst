@@ -10,7 +10,7 @@ For example::
     recipe = xuru.recipe.android
     apis = 16 17
     system_images = intel mips
-    sdk = http://dl.google.com/android/android-sdk_r22.0.1-macosx.zip
+    sdk = http://dl.google.com/android/android-sdk_r22.0.4-macosx.zip
     other_packages = 
         Google Play APK Expansion Library
         Google Web Driver
@@ -47,6 +47,15 @@ Where options are:
     packages there are to install type ``android list sdk -a`` on the command
     line after the sdk has been installed.  The name must be a unique sub-string
     of the names listed.
+
+``dryrun``
+    Set this to any of True, False, true, false, 1, 0 to set the boolean value.
+    This determines whether or not to include the command line switch
+    --dry-mode.
+
+``force``
+    Set this to any of True, False, true, false, 1, 0 to set the boolean value.
+    Forces replacement of a package or its parts, even if something has been modified. 
 
 Binaries Installed
 ------------------

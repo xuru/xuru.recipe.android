@@ -3,7 +3,7 @@ import os
 import os.path
 
 name = "xuru.recipe.android"
-version = '0.9.0'
+version = '0.10.0'
 
 
 def read(*pathnames):

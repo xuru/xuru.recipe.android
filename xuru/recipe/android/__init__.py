@@ -1,14 +1,14 @@
 import logging
 import os
-import re
 import sys
 import stat
+import shutil
 import os.path
 import zc.buildout
 import zc.buildout.download
 import setuptools
-import pexpect
 import subprocess
+from android import AndroidPackageManager
 
 template = """#!/bin/bash
 
@@ -17,9 +17,9 @@ export ANDRIOD_HOME={android_home}
 
 
 image_map = {
-    'arm': "ARM EABI v7a",
-    'intel': "Intel x86 Atom",
-    'mips': "MIPS"
+    'arm': "ARM EABI v7a System Image",
+    'intel': "Intel x86 Atom System Image",
+    'mips': "MIPS System Image"
 }
 
 
@@ -27,35 +27,37 @@ class Recipe:
     def __init__(self, buildout, name, options):
         self.buildout, self.name, self.options = buildout, name, options
         self.logger = logging.getLogger(name)
+        self.mountpoint = None
 
         root_logger = logging.getLogger()
         self.verbose = root_logger > 10
         self.platform = self._get_platform()
+
         self.apis = self.options.get('apis', '').split()
         self.images = self.options.get('system_images', '').split()
+        self.other_pkgs = self.options.get('other_packages', '').split('\n')
+
         self.bin_dir = buildout['buildout'].get('bin-directory')
         self.parts_dir = os.path.join(buildout['buildout'].get('parts-directory'), self.name)
-        self.install_dir = self.options.get('install_dir', None)
-        self.sdk_dir = self._get_sdk_dir()
+        self._setup_install_dirs()
 
+        self.dryrun = True if self.options.get('dryrun', 'false') in ['True', '1', 'true'] else False
+        self.force = True if self.options.get('force', 'false') in ['True', '1', 'true'] else False
+        self.apm = AndroidPackageManager(self.sdk_dir, logger=self.logger, dryrun=self.dryrun, force=self.force)
+
+        self.logger.info("dryrun: %s" % self.dryrun)
+        self.logger.info("force: %s" % self.force)
+
+        self.android = os.path.join(self.sdk_dir, "tools", "android")
         # make sure we have a parts directory
         if not os.path.exists(self.parts_dir):
             os.makedirs(self.parts_dir)
 
         # build up a list of scripts to generate
         self.sdk_script_binaries = []
-        for name in ['emulator', 'uiautomatorviewer', 'lint']:
+        for name in ['emulator', 'uiautomatorviewer', 'lint', 'android']:
             self.sdk_script_binaries.append(os.path.join(self.sdk_dir, 'tools', name))
         self.sdk_script_binaries.append(os.path.join(self.sdk_dir, 'platform-tools', 'adb'))
-
-        # install command
-        self.install_cmd = [os.path.join(self.sdk_dir, 'tools', 'android')]
-        if self.verbose:
-            self.install_cmd.append('-v')
-        self.install_cmd.extend(['update', 'sdk', '-s', '-u'])
-
-        if 'dry-run' in options:
-            self.install_cmd.append('--dry-mode')
 
         # save off options so other parts can access these values
         buildout[self.name]['sdk_dir'] = self.sdk_dir
@@ -70,123 +72,36 @@ class Recipe:
         elif sys.platform.startswith('win32'):
             platform = 'windows'
         else:
-            raise SystemError("Can't guess your platform")
+            raise SystemError("Operating system is not supported: %s" % sys.platform)
         return platform
 
-    def _get_sdk_dir(self):
+    def _setup_install_dirs(self):
+        self.install_dir = self.options.get('install_dir', None)
         if self.install_dir:
             if not os.path.exists(self.install_dir):
                 os.makedirs(self.install_dir)
 
-            sdk_dir = os.path.join(self.install_dir, "android-sdk-" + self.platform)
+        if self.install_dir:
+            self.sdk_dir = os.path.join(self.install_dir, "android-sdk-" + self.platform)
         else:
-            sdk_dir = os.path.join(self.parts_dir, "android-sdk-" + self.platform)
-        return sdk_dir
+            self.sdk_dir = os.path.join(self.parts_dir, "android-sdk-" + self.platform)
 
-    def _get_not_installed(self):
-        env = os.environ
-        env['ANDROID_HOME'] = self.sdk_dir
-        cmd = os.path.join(self.sdk_dir, 'tools', 'android')
-
-        self.not_installed = {}
-        output = subprocess.check_output([cmd, 'list', 'sdk'], env=env)
-        for line in output.split('\n'):
-            if '- ' in line:
-                index, desc = [x.strip() for x in line.split('- ')]
-                self.not_installed[index] = desc
-
-    def _find_apis(self):
-        rv = []
-        for api in self.apis:
-            regex = re.compile("SDK Platform Android .* API " + api)
-            for index, line in self.not_installed.items():
-                if regex.search(line):
-                    rv.append(index)
-        return rv
-
-    def _find_images(self):
-        rv = []
-        for api in self.apis:
-            if api == "17" and os.path.exists(os.path.join(self.parts_dir, '.installed_api17')):
-                # we already installed it...
-                continue
-
-            for image in self.images:
-                regex = re.compile(image_map[image.lower()] + " System Image.*API " + api)
-                for index, line in self.not_installed.items():
-                    if regex.search(line):
-                        rv.append(index)
-        return rv
-
-    def _find_required(self):
-        rv = []
-        for index, line in self.not_installed.items():
-            if 'Android SDK Tools' in line:
-                rv.append(index)
-            elif 'Android SDK Platform-tools' in line:
-                rv.append(index)
-            elif 'Android SDK Build-tools' in line:
-                rv.append(index)
-        return rv
-
-    def _calculate_packages(self):
-        self._get_not_installed()
-        others = self.options.get('other_packages', '').split('\n')
-
-        installables = self._find_required()
-        installables += self._find_apis()
-        installables += self._find_images()
-
-        for other in others:
-            for index, line in self.not_installed.items():
-                if other in line:
-                    installables.append(index)
-
-        return installables
-
-    def _install_tool(self, tool):
-        self.logger.info("Installing android: %s" % self.not_installed[tool])
-        cmd = self.install_cmd + ['-t', tool]
-
-        env = os.environ
-        env['ANDROID_HOME'] = self.sdk_dir
-
-        child = pexpect.spawn(" ".join(cmd), logfile=sys.stdout, env=env)
-        already_installed = 'Warning: The package filter removed all packages'
-
-        done = False
-        while not done:
-            index = child.expect(['\[y\/n\]', already_installed, pexpect.EOF, pexpect.TIMEOUT])
-            if index == 0:
-                child.sendline('y')
-            elif index in [1, 2]:
-                done = True
-            elif index == 3:
-                child.terminate(force=True)
-                done = True
-        if child.isalive():
-            child.wait()
-
-    def _create_script(self, cmd, env=os.environ):
-        data = template.format(android_home=self.sdk_dir, command=cmd)
-        script_fn = os.path.join(self.bin_dir, os.path.split(cmd)[-1])
-        open(script_fn, "w+").write(data)
-
-        # set the permissions to allow execution
-        os.chmod(
-            script_fn,
-            os.stat(script_fn).st_mode | stat.S_IXOTH | stat.S_IXGRP | stat.S_IXUSR)
-
-    def _install(self):
-        self.logger.info('installing tools')
-
-        for script in self.sdk_script_binaries:
+    def _remove_scripts(self):
+        for binary in self.sdk_script_binaries:
+            script = os.path.join(self.bin_dir, os.path.basename(binary))
             if os.path.exists(script):
                 os.unlink(script)
 
-        self._download_install()
-        self._create_script(os.path.join(self.sdk_dir, "tools", "android"))
-        self._update()
+    def _create_scripts(self):
+        for script in self.sdk_script_binaries:
+            data = template.format(android_home=self.sdk_dir, command=self.android)
+            script_fn = os.path.join(self.bin_dir, 'android')
+            open(script_fn, "w+").write(data)
+
+            # set the permissions to allow execution
+            os.chmod(
+                script_fn,
+                os.stat(script_fn).st_mode | stat.S_IXOTH | stat.S_IXGRP | stat.S_IXUSR)
 
     def _download_install(self):
         url = self.options['sdk']
@@ -206,60 +121,86 @@ class Recipe:
         finally:
             if is_temp:
                 os.remove(filename)
-        self._update()
 
-    def _get_next_install_package(self, packages):
-        package = packages[0]
+    def _get_mount_point(self):
+        if not self.mountpoint:
+            output = subprocess.check_output(['/usr/bin/hdiutil', 'info'])
+            for line in output.split('\n'):
+                if '/Volumes/IntelHAXM' in line:
+                    self.mountpoint = line.split('\t')[-1]
+        return self.mountpoint
 
-        # work around for the latest android not returning the correct
-        # information...  android list sdk will always list the system
-        # images for api 17...
-        if 'System Image, Android API 17' in self.not_installed[package]:
+    def _mount_haxm(self):
+        if self._get_mount_point():
+            self._umount_haxm()
 
-            # we have haven't installed it yet...
-            if not os.path.exists(os.path.join(self.sdk_dir, '.installed_api17')):
-                open(os.path.join(self.sdk_dir, '.installed_api17'), 'w+').write('true')
-                return package
+        dmg = os.path.join(self.sdk_dir, 'extras', 'intel', 'Hardware_Accelerated_Execution_Manager', 'IntelHAXM.dmg')
+        subprocess.check_output(['/usr/bin/hdiutil', 'mount', dmg])
 
-            # we installed it, but there are more packages after it in the list...
-            elif len(packages) > 1:
-                return packages[1]
+    def _umount_haxm(self):
+        mountpoint = self._get_mount_point()
+        subprocess.check_output(['/usr/bin/hdiutil', 'detach', mountpoint])
 
-            # we installed it, and there are no other packages
-            else:
-                return None
+    def _install_haxm(self, name):
+        if not self.apm.is_installed(name):
+            self._mount_haxm()
+
+        mpkg = None
+        mntpt = self._get_mount_point()
+        for f in os.listdir(mntpt):
+            if f.endswith('.mpkg'):
+                mpkg = os.path.join(mntpt, f)
+
+        if not mpkg:
+            raise SystemError("Unable to find installer for IntelHAXM in %s" % mntpt)
+
+        cmd = "sudo installer -pkg %s -target /" % mpkg
+        subprocess.call(['/bin/bash', '-c'] + cmd.split(), shell=True)
+
+    def _install(self):
+        if not os.path.exists(self.sdk_dir) or self.force:
+            self._remove_scripts()
+            self._download_install()
+            self._create_scripts()
         else:
-            # package isn't api 17, so install it
-            return package
+            # seems we already have an sdk?  We probably are doing an update...
+            self.logger.info("Android SDK already detected.  Use 'force=True' to override.")
 
-    def _update(self):
-        done = False
+        self.logger.info("Installing packages...")
+        # install some required
+        self.apm.install('Android SDK Tools')
+        self.apm.install('Android SDK Platform-tools')
+        self.apm.install('Android Support Library')
 
-        while not done:
-            # we need to do this every time we install something because the
-            # numbering will be different
-            packages = self._calculate_packages()
-            if packages:
-                package = self._get_next_install_package(packages)
-                if package:
-                    self._install_tool(package)
-                else:
-                    done = True
-            else:
-                done = True
+        self.logger.info("Installing api packages...")
+        for api in self.apis:
+            self.apm.install('Android SDK Build-tools', api)
+            self.apm.install('SDK Platform', api)
+            for image in self.images:
+                try:
+                    self.apm.install(image_map[image], api)
+                except Exception, e:
+                    self.logger.error("Error installing image: %s" % e)
 
-        for script in self.sdk_script_binaries:
-            self._create_script(script)
+        self.logger.info("Installing other packages...")
+        for pkg in self.other_pkgs:
+            self.apm.install(pkg)
 
     def install(self):
-        self._install()
+        try:
+            self._install()
+        except OSError, e:
+            # It's possible that the install was interupted...  retry from
+            # scratch.
+            self.logger.warn("OSError installing packages (%s).  Starting over from scratch..." % e)
+            shutil.rmtree(self.sdk_dir)
+            self._install()
 
-        self.logger.warn("*" * 80)
-        self.logger.warn("If you installed the Intel x86 Emulator Accelerator package, you will find the installer in")
-        self.logger.warn("parts/android/android-sdk-macosx/extras/intel/Hardware_Accelerated_Execution_Manager/IntelHAXM.dmg")
-        self.logger.warn("*" * 80)
-
+        name = "Intel x86 Emulator Accelerator (HAXM)"
+        if self._get_platform() == "macosx" and name in self.other_pkgs:
+            if not self.apm.is_installed(name):
+                self._install_haxm(name)
         return self.sdk_script_binaries
 
     def update(self):
-        self._update()
+        self.apm.update()
