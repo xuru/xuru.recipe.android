@@ -172,7 +172,7 @@ class Recipe:
     def _install_api_packages(self):
         self.logger.info("Installing api packages...")
         for api in self.apis:
-            self.apm.install('Android SDK Build-tools', api)
+            self.apm.install('Android SDK Build-tools', api, skip_checks=True)
             self.apm.install('SDK Platform', api)
             for image in self.images:
                 try:
