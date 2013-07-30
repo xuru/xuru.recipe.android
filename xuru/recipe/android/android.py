@@ -181,7 +181,7 @@ class AndroidPackageManager(object):
             else:
                 self.logger.info("  Already installed: " + name)
         else:
-            self.logger.info("  Skipping installed checks for: " + name)
+            self.logger.info("** Skipping installed checks for: " + name)
 
         if passed_checks:
             # An exception...  Android SDK Build-tools, doesn't exist
