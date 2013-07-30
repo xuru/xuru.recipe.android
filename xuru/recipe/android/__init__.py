@@ -30,7 +30,7 @@ class Recipe:
         self.mountpoint = None
 
         root_logger = logging.getLogger()
-        self.verbose = root_logger > 10
+        self.verbose = self.buildout['buildout']['verbosity'] > 10
         self.platform = self._get_platform()
 
         self.apis = self.options.get('apis', '').split()
