@@ -54,10 +54,10 @@ class Recipe:
             os.makedirs(self.parts_dir)
 
         # build up a list of scripts to generate
-        self.sdk_script_binaries = []
+        self.sdk_scripts = {}
         for name in ['emulator', 'uiautomatorviewer', 'lint', 'android']:
-            self.sdk_script_binaries.append(os.path.join(self.sdk_dir, 'tools', name))
-        self.sdk_script_binaries.append(os.path.join(self.sdk_dir, 'platform-tools', 'adb'))
+            self.sdk_scripts[name] = (os.path.join(self.sdk_dir, 'tools', name), os.path.join(self.bin_dir, name))
+        self.sdk_scripts['adb'] = (os.path.join(self.sdk_dir, 'platform-tools', 'adb'), os.path.join(self.bin_dir, 'adb'))
 
         # save off options so other parts can access these values
         buildout[self.name]['sdk_dir'] = self.sdk_dir
@@ -87,21 +87,21 @@ class Recipe:
             self.sdk_dir = os.path.join(self.parts_dir, "android-sdk-" + self.platform)
 
     def _remove_scripts(self):
-        for binary in self.sdk_script_binaries:
-            script = os.path.join(self.bin_dir, os.path.basename(binary))
-            if os.path.exists(script):
-                os.unlink(script)
+        for _from, _to in self.sdk_scripts.values():
+            if os.path.exists(_to):
+                self.logger.info("Removing script: %s" % _to)
+                os.unlink(_to)
 
     def _create_scripts(self):
-        for script in self.sdk_script_binaries:
-            data = template.format(android_home=self.sdk_dir, command=self.android)
-            script_fn = os.path.join(self.bin_dir, 'android')
-            open(script_fn, "w+").write(data)
+        for _from, _to in self.sdk_scripts.values():
+            data = template.format(android_home=self.sdk_dir, command=_from)
+            self.logger.info("Creating script: %s" % _to)
+            open(_to, "w+").write(data)
 
             # set the permissions to allow execution
             os.chmod(
-                script_fn,
-                os.stat(script_fn).st_mode | stat.S_IXOTH | stat.S_IXGRP | stat.S_IXUSR)
+                _to,
+                os.stat(_to).st_mode | stat.S_IXOTH | stat.S_IXGRP | stat.S_IXUSR)
 
     def _download_install(self):
         url = self.options['sdk']
@@ -157,21 +157,19 @@ class Recipe:
         cmd = "sudo installer -pkg %s -target /" % mpkg
         subprocess.call(['/bin/bash', '-c'] + cmd.split(), shell=True)
 
-    def _install(self):
-        if not os.path.exists(self.sdk_dir) or self.force:
-            self._remove_scripts()
-            self._download_install()
-            self._create_scripts()
-        else:
-            # seems we already have an sdk?  We probably are doing an update...
-            self.logger.info("Android SDK already detected.  Use 'force=True' to override.")
-
+    def _install_packages(self):
         self.logger.info("Installing packages...")
+
         # install some required
         self.apm.install('Android SDK Tools')
         self.apm.install('Android SDK Platform-tools')
         self.apm.install('Android Support Library')
 
+        self.logger.info("Installing other packages...")
+        for pkg in self.other_pkgs:
+            self.apm.install(pkg)
+
+    def _install_api_packages(self):
         self.logger.info("Installing api packages...")
         for api in self.apis:
             self.apm.install('Android SDK Build-tools', api)
@@ -182,25 +180,33 @@ class Recipe:
                 except Exception, e:
                     self.logger.error("Error installing image: %s" % e)
 
-        self.logger.info("Installing other packages...")
-        for pkg in self.other_pkgs:
-            self.apm.install(pkg)
-
     def install(self):
+        if not os.path.exists(self.sdk_dir) or self.force:
+            self._remove_scripts()
+            self._download_install()
+        else:
+            # seems we already have an sdk?  We probably are doing an update...
+            self.logger.info("Android SDK already detected.  Use 'force=True' to override.")
+
         try:
-            self._install()
+            self._install_packages()
+            self._install_api_packages()
         except OSError, e:
             # It's possible that the install was interupted...  retry from
             # scratch.
             self.logger.warn("OSError installing packages (%s).  Starting over from scratch..." % e)
             shutil.rmtree(self.sdk_dir)
-            self._install()
+            self._install_packages()
+            self._install_api_packages()
 
         name = "Intel x86 Emulator Accelerator (HAXM)"
         if self._get_platform() == "macosx" and name in self.other_pkgs:
             if not self.apm.is_installed(name):
                 self._install_haxm(name)
-        return self.sdk_script_binaries
+
+        self._create_scripts()
+
+        return [_to for _from, _to in self.sdk_scripts.values()]
 
     def update(self):
         self.apm.update()
