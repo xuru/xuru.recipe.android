@@ -11,7 +11,7 @@ package_regex = re.compile("(?P<index>\d+)[-] (?P<title>.*), (?P<revision>.*)")
 api_regex = re.compile("(?P<index>\d+)[-] (?P<title>.*), (?P<api>.*), (?P<revision>.*)")
 
 installed_package_checks = {
-    'Android SDK Tools': '',
+    'Android SDK Tools': 'tools/lib/rule-api.jar',
     'Android SDK Platform-tools': 'platform-tools/adb',
     'Android Support Library': 'extras/android/support',
     'Android Support Repository': 'extras/android/m2repository',
@@ -30,7 +30,7 @@ installed_package_checks = {
 
 installed_api_checks = {
     'Samples for SDK': 'samples/android-%s',
-    'SDK Platform': 'platforms/android-%s',
+    'SDK Platform': 'platforms/android-%s/data/android.jar',
     'ARM EABI v7a System Image': 'system-images/android-%s/armeabi-v7a',
     'Intel x86 Atom System Image': 'system-images/android-%s/x86',
     'MIPS System Image': 'system-images/android-%s/mips',
