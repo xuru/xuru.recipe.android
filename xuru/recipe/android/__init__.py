@@ -162,7 +162,7 @@ class Recipe:
 
         # install some required
         self.apm.install('Android SDK Platform-tools')
-        self.apm.install('Android SDK Tools')
+        self.apm.install('Android SDK Tools', skip_checks=True)
         self.apm.install('Android Support Library')
 
         self.logger.info("Installing other packages...")
