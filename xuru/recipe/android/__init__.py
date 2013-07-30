@@ -29,7 +29,6 @@ class Recipe:
         self.logger = logging.getLogger(name)
         self.mountpoint = None
 
-        root_logger = logging.getLogger()
         self.verbose = self.buildout['buildout']['verbosity'] > 10
         self.platform = self._get_platform()
 
@@ -43,7 +42,9 @@ class Recipe:
 
         self.dryrun = True if self.options.get('dryrun', 'false') in ['True', '1', 'true'] else False
         self.force = True if self.options.get('force', 'false') in ['True', '1', 'true'] else False
-        self.apm = AndroidPackageManager(self.sdk_dir, logger=self.logger, dryrun=self.dryrun, force=self.force)
+        self.apm = AndroidPackageManager(
+            self.sdk_dir, logger=self.logger, verbose=self.verbose,
+            dryrun=self.dryrun, force=self.force)
 
         self.logger.info("dryrun: %s" % self.dryrun)
         self.logger.info("force: %s" % self.force)
