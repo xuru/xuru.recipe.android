@@ -29,7 +29,9 @@ class Recipe:
         self.logger = logging.getLogger(name)
         self.mountpoint = None
 
-        self.verbose = self.buildout['buildout']['verbosity'] > 10
+        self.verbose = False
+        if 'verbosity' in self.buildout['buildout'] and self.buildout['buildout']['verbosity'] > 10:
+            self.verbose = True
         self.platform = self._get_platform()
 
         self.apis = self.options.get('apis', '').split()
