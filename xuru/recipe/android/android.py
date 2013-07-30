@@ -191,8 +191,6 @@ class AndroidPackageManager(object):
                 return
 
             self.logger.info("Installing %s" % name)
-            if self.verbose:
-                self.logger.info("  Path did not exist: %s" % filepath)
 
             if isinstance(self.packages[name], list):
                 for pkg in self.packages[name]:
