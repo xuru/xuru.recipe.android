@@ -176,6 +176,8 @@ class AndroidPackageManager(object):
         if not skip_checks:
             filepath = installed_package_checks[name] % api if '%s' in installed_package_checks[name] else installed_package_checks[name]
             filepath = os.path.join(self.sdk_dir, filepath)
+            if self.verbose:
+                self.logger.info("** filepath for checks: %s" % filepath)
             if os.path.exists(filepath):
                 passed_checks = False
             else:
@@ -214,6 +216,9 @@ class AndroidPackageManager(object):
             if not skip_checks:
                 filepath = installed_api_checks[name] % api
                 filepath = os.path.join(self.sdk_dir, filepath)
+                if self.verbose:
+                    self.logger.info("** filepath for checks: %s" % filepath)
+
                 if os.path.exists(filepath):
                     self.logger.info("  Already installed: %s [%s]" % (name, api))
                     passed_checks = False
