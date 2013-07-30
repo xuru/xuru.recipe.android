@@ -11,7 +11,7 @@ package_regex = re.compile("(?P<index>\d+)[-] (?P<title>.*), (?P<revision>.*)")
 api_regex = re.compile("(?P<index>\d+)[-] (?P<title>.*), (?P<api>.*), (?P<revision>.*)")
 
 installed_package_checks = {
-    'Android SDK Tools': 'tools',
+    'Android SDK Tools': '',
     'Android SDK Platform-tools': 'platform-tools/adb',
     'Android Support Library': 'extras/android/support',
     'Android Support Repository': 'extras/android/m2repository',
@@ -171,10 +171,19 @@ class AndroidPackageManager(object):
 
         self._android_update()
 
-    def install_package(self, name, api):
-        filepath = installed_package_checks[name] % api if '%s' in installed_package_checks[name] else installed_package_checks[name]
-        filepath = os.path.join(self.sdk_dir, filepath)
-        if not os.path.exists(filepath):
+    def install_package(self, name, api, skip_checks=False):
+        passed_checks = True
+        if not skip_checks:
+            filepath = installed_package_checks[name] % api if '%s' in installed_package_checks[name] else installed_package_checks[name]
+            filepath = os.path.join(self.sdk_dir, filepath)
+            if os.path.exists(filepath):
+                passed_checks = False
+            else:
+                self.logger.info("  Already installed: " + name)
+        else:
+            self.logger.info("  Skipping installed checks for: " + name)
+
+        if passed_checks:
             # An exception...  Android SDK Build-tools, doesn't exist
             # before API 17
             if name == "Android SDK Build-tools" and int(api) < 17:
@@ -191,10 +200,8 @@ class AndroidPackageManager(object):
             else:
                 self._android_update(
                     additional_cmds=['-a', '-t', self.packages[name]['index']])
-        else:
-            self.logger.info("  Already installed: " + name)
 
-    def install(self, name, api=None):
+    def install(self, name, api=None, skip_checks=False):
         """ installs/updates a specific package """
         if not self.packages:
             self.package_list()
@@ -202,12 +209,20 @@ class AndroidPackageManager(object):
         # the only package that has multiple installs is "Android SDK
         # Build-tools", and it's ok if we install both...
         if name in installed_package_checks:
-            self.install_package(name, api)
+            self.install_package(name, api, skip_checks)
 
         elif name in installed_api_checks:
-            filepath = installed_api_checks[name] % api
-            filepath = os.path.join(self.sdk_dir, filepath)
-            if not os.path.exists(filepath):
+            passed_checks = True
+            if not skip_checks:
+                filepath = installed_api_checks[name] % api
+                filepath = os.path.join(self.sdk_dir, filepath)
+                if os.path.exists(filepath):
+                    self.logger.info("  Already installed: %s [%s]" % (name, api))
+                    passed_checks = False
+            else:
+                self.logger.info("  Skipping installed checks for: %s [%s]" % (name, api))
+
+            if passed_checks:
                 self.logger.info("Installing %s [API %s]" % (name, api))
                 self._android_update(
                     additional_cmds=['-a', '-t', self.apis[api][name]['index']])
