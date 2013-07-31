@@ -141,12 +141,8 @@ class AndroidPackageManager(object):
         def acknowledge(d):
             d['child'].sendline('y')
 
-        (output, exitstatus) = pexpect.run(
-            " ".join(cmd), events={'\[y\/n\]': acknowledge}, logfile=logfile,
-            withexitstatus=True, env=env, timeout=60)
-
-        if exitstatus != 0:
-            raise Exception("The update command failed: '%s' with exit status %s" % (" ".join(cmd), exitstatus))
+        pexpect.run(" ".join(cmd), events={'\[y\/n\]': acknowledge}, logfile=logfile,
+                    env=env, timeout=60)
 
     def is_installed(self, name, api=None):
         if name in installed_package_checks:
