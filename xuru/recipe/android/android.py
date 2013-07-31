@@ -1,4 +1,5 @@
 
+from glob import glob
 import logging
 import re
 import sys
@@ -12,7 +13,7 @@ api_regex = re.compile("(?P<index>\d+)[-] (?P<title>.*), (?P<api>.*), (?P<revisi
 
 installed_package_checks = {
     'Android SDK Tools': 'tools/lib/rule-api.jar',
-    'Android SDK Platform-tools': 'platform-tools/adb',
+    'Android SDK Platform-tools': 'platform-tools',
     'Android Support Library': 'extras/android/support',
     'Android Support Repository': 'extras/android/m2repository',
     'Google AdMob Ads SDK': 'extras/google/admob_ads_sdk',
@@ -25,25 +26,26 @@ installed_package_checks = {
     'Google Web Driver': 'extras/google/webdriver',
     'Documentation for Android SDK': 'docs',
     'Intel x86 Emulator Accelerator (HAXM)': '/System/Library/LaunchDaemons/com.intel.haxm.plist',
-    'Android SDK Build-tools': 'build-tools/%s.0.0',
+    'Android SDK Build-tools': 'build-tools/%s*'
 }
 
 installed_api_checks = {
     'Samples for SDK': 'samples/android-%s',
-    'SDK Platform': 'platforms/android-%s/data/android.jar',
+    'SDK Platform': 'platforms/android-%s/android.jar',
     'ARM EABI v7a System Image': 'system-images/android-%s/armeabi-v7a',
     'Intel x86 Atom System Image': 'system-images/android-%s/x86',
     'MIPS System Image': 'system-images/android-%s/mips',
     'Google APIs': 'add-ons/addon-google_apis-google-%s',
-    'Sources for Android SDK': 'sources/android-%s',
+    'Sources for Android SDK': 'sources/android-%s'
 }
 
 
 class AndroidPackageManager(object):
-    def __init__(self, sdk_dir=None, logger=None, verbose=False, dryrun=False, force=False):
+    def __init__(self, sdk_dir=None, logger=None, verbose=10, dryrun=False, force=False):
         self.logger = logger
         self.sdk_dir = sdk_dir
-        self.verbose = verbose
+        self.verbose = verbose > 10
+        self.show_output = verbose > 20
         self.dryrun = dryrun
         self.force = force
 
@@ -122,17 +124,6 @@ class AndroidPackageManager(object):
                 api, data = self._parse_api_line(line)
                 self._update_api_list(api, data)
 
-    def is_installed(self, name, api=None):
-        if name in installed_package_checks and os.path.exists(
-            os.path.join(self.sdk_dir, installed_package_checks[name])
-        ):
-            return True
-        elif name in installed_api_checks and os.path.exists(
-            os.path.join(self.sdk_dir, installed_api_checks[name] % api)
-        ):
-            return True
-        return False
-
     def _android_update(self, additional_cmds=[], env=os.environ):
         cmd = [os.path.join(self.sdk_dir, 'tools', 'android')]
         cmd += ['-s']
@@ -144,47 +135,47 @@ class AndroidPackageManager(object):
         env['ANDROID_HOME'] = self.sdk_dir
 
         logfile = None
-        if self.verbose:
+        if self.show_output:
             logfile = sys.stdout
-            self.logger.info("CMD: %s" % " ".join(cmd))
 
-        child = pexpect.spawn(" ".join(cmd), logfile=logfile, env=env)
-        already_installed = 'Warning: The package filter removed all packages'
+        def acknowledge(d):
+            d['child'].sendline('y')
 
-        done = False
-        while not done:
-            index = child.expect(['\[y\/n\]', already_installed, pexpect.EOF, pexpect.TIMEOUT])
-            if index == 0:
-                child.sendline('y')
-            elif index in [1, 2]:
-                done = True
-            elif index == 3:
-                child.terminate(force=True)
-                done = True
-        child.close()
+        (output, exitstatus) = pexpect.run(
+            " ".join(cmd), events={'\[y\/n\]': acknowledge}, logfile=logfile,
+            withexitstatus=True, env=env, timeout=60)
 
-    def update(self):
-        """ Updates all packages """
-        if not self.packages:
-            self.package_list()
+        if exitstatus != 0:
+            raise Exception("The update command failed: '%s' with exit status %s" % (" ".join(cmd), exitstatus))
 
-        self._android_update()
+    def is_installed(self, name, api=None):
+        if name in installed_package_checks:
+            return self.check(name, api, installed_package_checks)
+        else:
+            return self.check(name, api, installed_api_checks)
+
+    def check(self, name, api, installed_checks):
+        filepath = os.path.join(self.sdk_dir, installed_checks[name])
+
+        if '%s' in filepath:
+            filepath = filepath % api
+
+        if '*' in filepath:
+            filelist = glob(filepath)
+            if filelist:
+                filepath = filelist[0]
+
+        if self.verbose:
+            self.logger.info("  Checking for: %s" % filepath)
+
+        return os.path.exists(filepath)
 
     def install_package(self, name, api, skip_checks=False):
-        passed_checks = True
-        if not skip_checks:
-            filepath = installed_package_checks[name] % api if '%s' in installed_package_checks[name] else installed_package_checks[name]
-            filepath = os.path.join(self.sdk_dir, filepath)
-            if self.verbose:
-                self.logger.info("** filepath for checks: %s" % filepath)
-            if os.path.exists(filepath):
-                passed_checks = False
-            else:
-                self.logger.info("  Already installed: " + name)
-        else:
-            self.logger.info("** Skipping installed checks for: " + name)
+        installed = self.check(name, api, installed_package_checks)
+        if installed and not skip_checks:
+            self.logger.info("  Already installed: %s [%s]" % (name, api))
 
-        if passed_checks:
+        else:
             # An exception...  Android SDK Build-tools, doesn't exist
             # before API 17
             if name == "Android SDK Build-tools" and int(api) < 17:
@@ -200,33 +191,30 @@ class AndroidPackageManager(object):
                 self._android_update(
                     additional_cmds=['-a', '-t', self.packages[name]['index']])
 
+    def install_api_package(self, name, api, skip_checks=False):
+        installed = self.check(name, api, installed_api_checks)
+        if installed and not skip_checks:
+            self.logger.info("  Already installed: %s [%s]" % (name, api))
+        else:
+            self.logger.info("Installing %s [API %s]" % (name, api))
+            self._android_update(
+                additional_cmds=['-a', '-t', self.apis[api][name]['index']])
+
     def install(self, name, api=None, skip_checks=False):
         """ installs/updates a specific package """
         if not self.packages:
             self.package_list()
 
-        # the only package that has multiple installs is "Android SDK
-        # Build-tools", and it's ok if we install both...
         if name in installed_package_checks:
             self.install_package(name, api, skip_checks)
-
         elif name in installed_api_checks:
-            passed_checks = True
-            if not skip_checks:
-                filepath = installed_api_checks[name] % api
-                filepath = os.path.join(self.sdk_dir, filepath)
-                if self.verbose:
-                    self.logger.info("** filepath for checks: %s" % filepath)
-
-                if os.path.exists(filepath):
-                    self.logger.info("  Already installed: %s [%s]" % (name, api))
-                    passed_checks = False
-            else:
-                self.logger.info("  Skipping installed checks for: %s [%s]" % (name, api))
-
-            if passed_checks:
-                self.logger.info("Installing %s [API %s]" % (name, api))
-                self._android_update(
-                    additional_cmds=['-a', '-t', self.apis[api][name]['index']])
+            self.install_api_package(name, api, skip_checks)
         else:
             self.logger.error("ERROR: Unable to install %s.  Please check the package name." % name)
+
+    def update(self):
+        """ Updates all packages """
+        if not self.packages:
+            self.package_list()
+
+        self._android_update()
