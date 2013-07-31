@@ -161,8 +161,7 @@ class AndroidPackageManager(object):
             elif index == 3:
                 child.terminate(force=True)
                 done = True
-        if child.isalive():
-            child.wait()
+        child.close()
 
     def update(self):
         """ Updates all packages """
