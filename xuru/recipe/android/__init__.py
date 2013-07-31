@@ -7,7 +7,6 @@ import os.path
 import zc.buildout
 import zc.buildout.download
 import setuptools
-import subprocess
 from android import AndroidPackageManager
 
 template = """#!/bin/bash
@@ -27,11 +26,10 @@ class Recipe:
     def __init__(self, buildout, name, options):
         self.buildout, self.name, self.options = buildout, name, options
         self.logger = logging.getLogger(name)
-        self.mountpoint = None
 
         self.verbose = False
-        if 'verbosity' in self.buildout['buildout'] and self.buildout['buildout']['verbosity'] > 10:
-            self.verbose = True
+        if 'verbosity' in self.buildout['buildout']:
+            self.verbose = int(self.buildout['buildout']['verbosity'])
         self.platform = self._get_platform()
 
         self.apis = self.options.get('apis', '').split()
@@ -125,57 +123,28 @@ class Recipe:
             if is_temp:
                 os.remove(filename)
 
-    def _get_mount_point(self):
-        if not self.mountpoint:
-            output = subprocess.check_output(['/usr/bin/hdiutil', 'info'])
-            for line in output.split('\n'):
-                if '/Volumes/IntelHAXM' in line:
-                    self.mountpoint = line.split('\t')[-1]
-        return self.mountpoint
-
-    def _mount_haxm(self):
-        if self._get_mount_point():
-            self._umount_haxm()
-
-        dmg = os.path.join(self.sdk_dir, 'extras', 'intel', 'Hardware_Accelerated_Execution_Manager', 'IntelHAXM.dmg')
-        subprocess.check_output(['/usr/bin/hdiutil', 'mount', dmg])
-
-    def _umount_haxm(self):
-        mountpoint = self._get_mount_point()
-        subprocess.check_output(['/usr/bin/hdiutil', 'detach', mountpoint])
-
     def _install_haxm(self, name):
         if not self.apm.is_installed(name):
-            self._mount_haxm()
-
-        mpkg = None
-        mntpt = self._get_mount_point()
-        for f in os.listdir(mntpt):
-            if f.endswith('.mpkg'):
-                mpkg = os.path.join(mntpt, f)
-
-        if not mpkg:
-            raise SystemError("Unable to find installer for IntelHAXM in %s" % mntpt)
-
-        cmd = "sudo installer -pkg %s -target /" % mpkg
-        subprocess.call(['/bin/bash', '-c'] + cmd.split(), shell=True)
+            dmg = os.path.join(self.sdk_dir, 'extras', 'intel', 'Hardware_Accelerated_Execution_Manager', 'IntelHAXM.dmg')
+            self.logger.info("********************************************************************************")
+            self.logger.info(" ATTENTION ")
+            self.logger.info(" Be sure to install %s " % name)
+            self.logger.info(" You can find the installer here: ")
+            self.logger.info(" %s " % dmg)
+            self.logger.info("********************************************************************************")
 
     def _install_packages(self):
-        self.logger.info("Installing packages...")
-
         # install some required
-        self.apm.install('Android SDK Platform-tools', skip_checks=True)
-        self.apm.install('Android SDK Tools', skip_checks=True)
+        self.apm.install('Android SDK Platform-tools')
+        self.apm.install('Android SDK Tools')
         self.apm.install('Android Support Library')
 
-        self.logger.info("Installing other packages...")
         for pkg in self.other_pkgs:
             self.apm.install(pkg)
 
     def _install_api_packages(self):
-        self.logger.info("Installing api packages...")
         for api in self.apis:
-            self.apm.install('Android SDK Build-tools', api, skip_checks=True)
+            self.apm.install('Android SDK Build-tools', api)
             self.apm.install('SDK Platform', api)
             for image in self.images:
                 try:
@@ -206,6 +175,8 @@ class Recipe:
         if self._get_platform() == "macosx" and name in self.other_pkgs:
             if not self.apm.is_installed(name):
                 self._install_haxm(name)
+            else:
+                self.logger.info("Already installed: %s" % name)
 
         self._create_scripts()
 
