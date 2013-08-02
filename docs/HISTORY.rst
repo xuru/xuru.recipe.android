@@ -1,8 +1,18 @@
 Changelog
 =========
 
+0.10.0 - 2013-08-02
+-------------------
+* Rewrote everything to inspect the file system instead of relying on the android app to tell use what needs installing and what doesn't.
+* Fixed verbose settings: -vv for verbose -vvvv to see the license agreements
+* Added two settings: "dryrun" and "force"
+* Corrected script generation (and now correctly detects if something isn't
+  installed based on those).
+* Fixed install order for dependencies.
+* Now much more consistant.
+
 0.9.1 - Unreleased
------------------
+------------------
 
 * Nothing yet...
 
